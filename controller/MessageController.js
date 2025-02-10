@@ -83,7 +83,6 @@ export const sendMessage = async (req, res) => {
   }
 };
 
-// Obtener mensajes con paginación
 export const getMessages = async (req, res) => {
   const { user_id } = req.user;
   // Convertir friendId a número, en caso de que sea necesario
@@ -111,7 +110,7 @@ export const getMessages = async (req, res) => {
     const messagesQuery = db
     .collection("chats")
     .where("chatId", "==", chat.id)
-    .orderBy("createdAt", "desc")
+    .orderBy("createdAt", "asc")
     .offset((page - 1) * pageSize)
     .limit(parseInt(pageSize));
 
@@ -129,7 +128,6 @@ export const getMessages = async (req, res) => {
     res.status(500).json({ error: "Error al obtener los mensajes." });
   }
 };
-
 
 // Eliminar un mensaje
 export const deleteMessage = async (req, res) => {

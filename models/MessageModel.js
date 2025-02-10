@@ -10,7 +10,6 @@ export const MessageModel = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
-    // Nuevo campo para mapear el ID de Firebase
     firebase_id: {
       type: DataTypes.STRING,
       allowNull: false,

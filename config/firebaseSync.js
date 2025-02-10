@@ -1,3 +1,4 @@
+// firebaseSync.js
 import { db } from "./firebaseConfig.js"; // Asegúrate de la ruta correcta
 import { MessageModel } from "../models/MessageModel.js";
 import { UserModel } from "../models/UserModel.js";
@@ -16,6 +17,7 @@ db.collection("chats").onSnapshot(
       console.log(`Procesando mensaje con firebase_id: ${firebaseMessageId}`);
 
       if (change.type === "added") {
+        // Sincronizar mensaje agregado a MySQL
         try {
           // Verificar que existan emisor, receptor y chat en MySQL
           const sender = await UserModel.findByPk(data.senderId);
@@ -35,7 +37,7 @@ db.collection("chats").onSnapshot(
             return;
           }
 
-          // Convertir la fecha: si es Timestamp de Firestore, usar toDate()
+          // Convertir la fecha (si es Timestamp de Firestore, usar toDate())
           let createdAt;
           if (data.createdAt && typeof data.createdAt.toDate === "function") {
             createdAt = data.createdAt.toDate();
@@ -65,6 +67,7 @@ db.collection("chats").onSnapshot(
           console.error("❌ Error al sincronizar mensaje con MySQL:", error);
         }
       } else if (change.type === "modified") {
+        // Actualizar el estado del mensaje en MySQL
         try {
           await MessageModel.update(
             { message_status: data.status },
@@ -75,8 +78,51 @@ db.collection("chats").onSnapshot(
           console.error("❌ Error al actualizar mensaje en MySQL:", error);
         }
       } else if (change.type === "removed") {
+        // Cuando se elimina un mensaje, verificar si es el último en el chat y actualizar
         try {
-          await MessageModel.destroy({ where: { firebase_id: firebaseMessageId } });
+          // Primero, buscamos en MySQL el mensaje que se va a eliminar
+          const messageRecord = await MessageModel.findOne({ where: { firebase_id: firebaseMessageId } });
+          
+          if (messageRecord) {
+            // Obtenemos el chat asociado (usando data.chatId)
+            const chat = await ChatModel.findByPk(data.chatId);
+            
+            // Si el mensaje eliminado es el que figura como último mensaje del chat...
+            if (chat && chat.last_message_id === messageRecord.id) {
+              // Consultamos Firebase para obtener el "nuevo último mensaje" (ordenamos por createdAt descendente)
+              const messagesSnapshot = await db.collection("chats")
+                .where("chatId", "==", data.chatId)
+                .orderBy("createdAt", "desc")
+                .limit(1)
+                .get();
+              
+              if (!messagesSnapshot.empty) {
+                const lastDoc = messagesSnapshot.docs[0];
+                const lastData = lastDoc.data();
+                let newLastMessageDate;
+                if (lastData.createdAt && typeof lastData.createdAt.toDate === "function") {
+                  newLastMessageDate = lastData.createdAt.toDate();
+                } else {
+                  newLastMessageDate = new Date(lastData.createdAt);
+                }
+                // Se actualiza el chat con el nuevo último mensaje.
+                // Nota: Si tienes en MySQL un campo para relacionar el chat con el mensaje (por ejemplo, chat_id en MessageModel),
+                // podrías buscar en MySQL el registro correspondiente. En este ejemplo actualizamos usando el id de Firebase.
+                await chat.update({
+                  last_message_id: lastDoc.id, // Puedes cambiar esto para mapearlo al id de MySQL correspondiente
+                  last_message_date: newLastMessageDate,
+                });
+              } else {
+                // Si no quedan mensajes en el chat, se limpia la información del último mensaje.
+                await chat.update({
+                  last_message_id: null,
+                  last_message_date: null,
+                });
+              }
+            }
+            // Finalmente, eliminamos el mensaje de MySQL
+            await MessageModel.destroy({ where: { firebase_id: firebaseMessageId } });
+          }
           console.log(`✅ Mensaje eliminado de MySQL: ${firebaseMessageId}`);
         } catch (error) {
           console.error("❌ Error al eliminar mensaje en MySQL:", error);
